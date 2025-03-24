@@ -20,6 +20,7 @@ use sqlx::query;
 
 use crate::AppDB;
 
+// TODO: rename to Authorization
 #[derive(Responder)]
 #[response(status = 200)]
 struct Authentication(String);
@@ -75,7 +76,7 @@ impl Claims {
     fn create_jwt(sub: i32) -> Result<String, Error> {
         let claims = Self {
             sub,
-            exp: Utc::now().timestamp() + 10800,
+            exp: Utc::now().timestamp() + 10800, // 3h
         };
 
         let header = Header::new(jsonwebtoken::Algorithm::HS512);
@@ -83,11 +84,19 @@ impl Claims {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct User<'r> {
     username: &'r str,
     password: &'r str,
+}
+
+#[derive(Serialize)]
+#[serde(crate = "rocket::serde")]
+struct UserResponse {
+    name: String,
+    id: i32,
+    created_at: i64,
 }
 
 #[post("/", data = "<user>")]
@@ -128,6 +137,7 @@ pub(crate) async fn login<'r>(
     cred: Json<User<'_>>,
     mut db: Connection<AppDB>,
 ) -> Result<(Status, Authentication), (Status, LoginError<'r>)> {
+    // TODO: refactor Result<(S, _), E> to Result<_, E>
     // get user
     let Some(user) = query!("select * from users where name=$1", cred.username)
         .fetch_one(&mut **db)
@@ -183,7 +193,43 @@ pub(crate) async fn login<'r>(
 }
 
 #[get("/login")]
-pub(crate) async fn verify_token(_auth: Authentication) {}
+pub(crate) async fn verify_token(_auth: Authentication) {} // body isn't required since the request guard checks for validity
+
+#[get("/")]
+pub(crate) async fn retrieve_user<'r>(
+    auth: Authentication,
+    mut db: Connection<AppDB>,
+) -> Result<Json<UserResponse>, (Status, LoginError<'r>)> {
+    let claims = match validate_auth_key(&auth.0) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Inconsistency between request guard and this call: {e}");
+            return Err((
+                Status::InternalServerError,
+                LoginError::Other("Could not verify authorization header".into()),
+            ));
+        }
+    };
+
+    let uid = claims.claims.sub;
+
+    let Some(user) = query!("select * from users where id = $1", uid)
+        .fetch_one(&mut **db)
+        .await
+        .ok()
+    else {
+        return Err((
+            Status::NotFound,
+            LoginError::NotFound("User not found".into()),
+        ));
+    };
+
+    Ok(Json(UserResponse {
+        name: user.name,
+        id: user.id,
+        created_at: user.createdat.as_utc().unix_timestamp(),
+    }))
+}
 
 #[cfg(test)]
 mod tests {

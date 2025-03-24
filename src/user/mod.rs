@@ -10,6 +10,11 @@ impl Module for UserModule {
     const BASE_PATH: &str = "/user";
 
     fn routes() -> Vec<rocket::Route> {
-        routes![auth::create_user, auth::login, auth::verify_token]
+        routes![
+            auth::create_user, // TODO: move to separate file
+            auth::login,
+            auth::verify_token,
+            auth::retrieve_user // move
+        ]
     }
 }
