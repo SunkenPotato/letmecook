@@ -25,7 +25,6 @@ pub struct AppDB(rocket_db_pools::sqlx::PgPool);
 fn rocket() -> _ {
     #[cfg(not(test))]
     log4rs::init_file("log4s.yaml", Default::default()).unwrap();
-    let rocket = rocket::build().attach(AppDB::init()).add::<UserModule>();
 
-    rocket
+    rocket::build().attach(AppDB::init()).add::<UserModule>()
 }

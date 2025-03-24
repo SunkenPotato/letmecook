@@ -72,16 +72,14 @@ struct Claims {
 }
 
 impl Claims {
-    fn new(sub: i32) -> Result<String, Error> {
+    fn create_jwt(sub: i32) -> Result<String, Error> {
         let claims = Self {
             sub,
             exp: Utc::now().timestamp() + 10800,
         };
 
         let header = Header::new(jsonwebtoken::Algorithm::HS512);
-        let token = encode(&header, &claims, &EncodingKey::from_secret(&*crate::KEY));
-
-        token
+        encode(&header, &claims, &EncodingKey::from_secret(&*crate::KEY))
     }
 }
 
@@ -150,39 +148,35 @@ pub(crate) async fn login<'r>(
     }
 
     match password_auth::verify_password(cred.password, &user.hash) {
-        Ok(()) => match Claims::new(user.id) {
-            Ok(v) => return Ok((Status::Ok, Authentication(v))),
+        Ok(()) => match Claims::create_jwt(user.id) {
+            Ok(v) => Ok((Status::Ok, Authentication(v))),
             Err(e) => {
-                return {
-                    error!(
-                        "Could not generate JWT for \"{}\" (id: {}): {}",
-                        user.name, user.id, e
-                    );
+                error!(
+                    "Could not generate JWT for \"{}\" (id: {}): {}",
+                    user.name, user.id, e
+                );
 
-                    Err((
-                        Status::InternalServerError,
-                        LoginError::Other("Failed to generate JWT".into()),
-                    ))
-                };
+                Err((
+                    Status::InternalServerError,
+                    LoginError::Other("Failed to generate JWT".into()),
+                ))
             }
         },
         Err(e) => match e {
-            VerifyError::PasswordInvalid => {
-                return Err((
-                    Status::Forbidden,
-                    LoginError::AuthErr(AuthenticationError::Invalid("Invalid password")),
-                ));
-            }
+            VerifyError::PasswordInvalid => Err((
+                Status::Forbidden,
+                LoginError::AuthErr(AuthenticationError::Invalid("Invalid password")),
+            )),
             VerifyError::Parse(e) => {
                 error!(
                     "An error occurred while parsing \"{}\"'s (id: {}) hash: {}",
                     user.name, user.id, e
                 );
 
-                return Err((
+                Err((
                     Status::InternalServerError,
                     LoginError::Other("Failed to parse stored hash".into()),
-                ));
+                ))
             }
         },
     }
@@ -225,7 +219,9 @@ mod tests {
 
         assert_eq!(response.status(), Status::Ok, "login failed");
 
-        let claims = validate_auth_key(&response.into_string().await.unwrap()).unwrap();
+        let key = response.into_string().await.unwrap();
+
+        let claims = validate_auth_key(&key).unwrap();
         assert_eq!(claims.claims.sub, DEV_ID);
     }
 }
