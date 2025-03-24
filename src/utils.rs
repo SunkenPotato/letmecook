@@ -15,6 +15,6 @@ sealed_trait! {
 
 impl RocketExt for Rocket<Build> {
     fn add<M: Module>(self) -> Self {
-        self.mount(M::BASE_PATH, M::routes())
+        self.mount(format!("/api{}", M::BASE_PATH), M::routes())
     }
 }
