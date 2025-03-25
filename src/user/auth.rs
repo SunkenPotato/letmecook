@@ -68,7 +68,7 @@ impl<'r> FromRequest<'r> for Authorization {
 pub(super) fn validate_auth_key(key: &str) -> Result<TokenData<Claims>, Error> {
     let validation = Validation::new(jsonwebtoken::Algorithm::HS512);
 
-    decode::<Claims>(key, &DecodingKey::from_secret(&*crate::KEY), &validation)
+    decode::<Claims>(key, &DecodingKey::from_secret(&crate::KEY), &validation)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,7 +85,7 @@ impl Claims {
         };
 
         let header = Header::new(jsonwebtoken::Algorithm::HS512);
-        encode(&header, &claims, &EncodingKey::from_secret(&*crate::KEY))
+        encode(&header, &claims, &EncodingKey::from_secret(&crate::KEY))
     }
 }
 
