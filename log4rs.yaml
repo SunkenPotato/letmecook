@@ -1,0 +1,27 @@
+refresh_rate: 30 seconds
+
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S:%m)} [{h({l})}] {M}: {m}\n"
+  file:
+    kind: file
+    path: "log/app.log"
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S:%m)} [{l}] {M}: {m}\n"
+
+root:
+  level: info
+
+loggers:
+  rocket:
+    level: warn
+    appenders:
+      - stdout
+
+  crate:
+    level: info
+    appenders:
+      - stdout
+      - file
