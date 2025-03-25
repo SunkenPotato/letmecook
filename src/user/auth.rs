@@ -29,7 +29,9 @@ pub(super) struct Authorization(pub(super) String);
 #[derive(Debug, Responder)]
 #[response(status = 403)]
 pub(super) enum AuthenticationError<'r> {
+    #[response(status = 403)]
     Invalid(&'r str),
+    #[response(status = 401)]
     Missing(&'r str),
 }
 
@@ -91,24 +93,19 @@ impl Claims {
 pub(crate) async fn login<'r>(
     cred: Json<User<'_>>,
     mut db: Connection<AppDB>,
-) -> Result<Authorization, (Status, LoginError<'r>)> {
-    let Some(user) = query!("select * from users where name=$1", cred.username)
-        .fetch_one(&mut **db)
-        .await
-        .ok()
-    else {
-        return Err((
-            Status::NotFound,
-            LoginError::NotFound(format!("User {} not found", cred.username)),
-        ));
+) -> Result<Authorization, LoginError<'r>> {
+    let Some(user) = query!(
+        "select * from users where name=$1 and deleted = false",
+        cred.username
+    )
+    .fetch_one(&mut **db)
+    .await
+    .ok() else {
+        return Err(LoginError::NotFound(format!(
+            "User {} not found",
+            cred.username
+        )));
     };
-
-    if user.deleted {
-        return Err((
-            Status::NotFound,
-            LoginError::NotFound(format!("User {} not found", cred.username)),
-        ));
-    }
 
     match password_auth::verify_password(cred.password, &user.hash) {
         Ok(()) => match Claims::create_jwt(user.id) {
@@ -119,27 +116,20 @@ pub(crate) async fn login<'r>(
                     user.name, user.id, e
                 );
 
-                Err((
-                    Status::InternalServerError,
-                    LoginError::Other("Failed to generate JWT".into()),
-                ))
+                Err(LoginError::Other("Failed to generate JWT".into()))
             }
         },
         Err(e) => match e {
-            VerifyError::PasswordInvalid => Err((
-                Status::Forbidden,
-                LoginError::AuthErr(AuthenticationError::Invalid("Invalid password")),
-            )),
+            VerifyError::PasswordInvalid => Err(LoginError::AuthErr(AuthenticationError::Invalid(
+                "Invalid password",
+            ))),
             VerifyError::Parse(e) => {
                 error!(
                     "An error occurred while parsing \"{}\"'s (id: {}) hash: {}",
                     user.name, user.id, e
                 );
 
-                Err((
-                    Status::InternalServerError,
-                    LoginError::Other("Failed to parse stored hash".into()),
-                ))
+                Err(LoginError::Other("Failed to parse stored hash".into()))
             }
         },
     }

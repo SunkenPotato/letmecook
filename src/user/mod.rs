@@ -1,8 +1,6 @@
 #![allow(private_interfaces)]
 
-// TODO: delete user
-// TODO: remove Status from response types, use #[response(status = ...)] instead
-// TODO: add tests
+// TODO: add tests - nc
 
 use auth::{Authorization, LoginError, validate_auth_key};
 use log::error;
@@ -27,7 +25,8 @@ impl Module for UserModule {
             auth::login,
             auth::verify_token,
             retrieve_user,
-            update_user
+            update_user,
+            delete_user
         ]
     }
 }
@@ -65,14 +64,14 @@ pub(crate) async fn retrieve_user<'r>(
 
     let uid = claims.claims.sub;
 
-    let Some(user) = query!("select * from users where id = $1", uid)
+    let Some(user) = query!("select * from users where id = $1 and deleted = false", uid)
         .fetch_one(&mut **db)
         .await
         .ok()
     else {
         return Err((
             Status::NotFound,
-            LoginError::NotFound("User not found".into()),
+            LoginError::NotFound("user not found".into()),
         ));
     };
 
@@ -117,8 +116,26 @@ async fn create_user(user: Json<User<'_>>, mut db: Connection<AppDB>) -> Status 
 }
 
 #[delete("/")]
-fn delete_user(auth: Authorization) -> Status {
-    todo!()
+async fn delete_user(auth: Authorization, mut db: Connection<AppDB>) -> Status {
+    let claims = validate_auth_key(&auth.0).expect("expected key already to be validated");
+
+    match query!(
+        "update users set deleted = true where id = $1 and deleted = false",
+        claims.claims.sub
+    )
+    .execute(&mut **db)
+    .await
+    {
+        Ok(v) => match v.rows_affected() == 1 {
+            true => Status::NoContent,
+            _ => Status::NotFound,
+        },
+        Err(e) => {
+            error!("Error occurred while trying to pseudo-delete user: {e}");
+
+            Status::InternalServerError
+        }
+    }
 }
 
 #[derive(Responder)]
@@ -133,24 +150,6 @@ async fn update_user<'r>(
 ) -> Result<UserUpdateResponse, LoginError<'r>> {
     let claims = validate_auth_key(&auth.0).expect("valid token because of request guard");
 
-    match query!(
-        "select exists(select * from users where id=$1)",
-        claims.claims.sub
-    )
-    .fetch_one(&mut **db)
-    .await
-    .unwrap()
-    .exists
-    .unwrap()
-    {
-        false => {
-            return Err(LoginError::NotFound(
-                "Could not find user with supplied id".into(),
-            ));
-        }
-        _ => (),
-    };
-
     let hash = generate_hash(user.password);
 
     match sqlx::query!(
@@ -162,7 +161,10 @@ async fn update_user<'r>(
     .execute(&mut **db)
     .await
     {
-        Ok(_) => Ok(UserUpdateResponse(())),
+        Ok(v) => match v.rows_affected() == 1 {
+            true => Ok(UserUpdateResponse(())),
+            false => Err(LoginError::NotFound("user not found".into())),
+        },
         Err(e) => {
             error!(
                 "Error while trying to update user row (id={}): {}",
