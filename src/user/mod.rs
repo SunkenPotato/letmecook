@@ -1,5 +1,9 @@
 #![allow(private_interfaces)]
 
+// TODO: delete user
+// TODO: remove Status from response types, use #[response(status = ...)] instead
+// TODO: add tests
+
 use auth::{Authorization, LoginError, validate_auth_key};
 use log::error;
 use password_auth::generate_hash;
