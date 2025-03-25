@@ -36,7 +36,9 @@ pub(super) enum AuthenticationError<'r> {
 #[derive(Debug, Responder)]
 pub(super) enum LoginError<'r> {
     AuthErr(AuthenticationError<'r>),
+    #[response(status = 404)]
     NotFound(String),
+    #[response(status = 500)]
     Other(String),
 }
 

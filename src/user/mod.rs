@@ -2,7 +2,8 @@
 
 use auth::{Authorization, LoginError, validate_auth_key};
 use log::error;
-use rocket::{get, http::Status, post, routes, serde::json::Json};
+use password_auth::generate_hash;
+use rocket::{Responder, delete, get, http::Status, post, put, routes, serde::json::Json};
 use rocket_db_pools::Connection;
 use serde::{Deserialize, Serialize};
 use sqlx::query;
@@ -18,10 +19,11 @@ impl Module for UserModule {
 
     fn routes() -> Vec<rocket::Route> {
         routes![
-            create_user, // TODO: move to separate file
+            create_user,
             auth::login,
             auth::verify_token,
-            retrieve_user // move
+            retrieve_user,
+            update_user
         ]
     }
 }
@@ -106,6 +108,64 @@ async fn create_user(user: Json<User<'_>>, mut db: Connection<AppDB>) -> Status 
         Err(e) => {
             error!("Error while creating user: {e}");
             Status::InternalServerError
+        }
+    }
+}
+
+#[delete("/")]
+fn delete_user(auth: Authorization) -> Status {
+    todo!()
+}
+
+#[derive(Responder)]
+#[response(status = 201)]
+struct UserUpdateResponse(());
+
+#[put("/", data = "<user>")]
+async fn update_user<'r>(
+    auth: Authorization,
+    user: Json<User<'r>>,
+    mut db: Connection<AppDB>,
+) -> Result<UserUpdateResponse, LoginError<'r>> {
+    let claims = validate_auth_key(&auth.0).expect("valid token because of request guard");
+
+    match query!(
+        "select exists(select * from users where id=$1)",
+        claims.claims.sub
+    )
+    .fetch_one(&mut **db)
+    .await
+    .unwrap()
+    .exists
+    .unwrap()
+    {
+        false => {
+            return Err(LoginError::NotFound(
+                "Could not find user with supplied id".into(),
+            ));
+        }
+        _ => (),
+    };
+
+    let hash = generate_hash(user.password);
+
+    match sqlx::query!(
+        "update users set name = $1, hash = $2 where id=$3",
+        user.username,
+        hash,
+        claims.claims.sub
+    )
+    .execute(&mut **db)
+    .await
+    {
+        Ok(_) => Ok(UserUpdateResponse(())),
+        Err(e) => {
+            error!(
+                "Error while trying to update user row (id={}): {}",
+                claims.claims.sub, e
+            );
+
+            Err(LoginError::Other("Internal Server Error".into()))
         }
     }
 }
