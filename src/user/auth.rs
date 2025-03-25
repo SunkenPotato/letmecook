@@ -20,27 +20,28 @@ use sqlx::query;
 
 use crate::AppDB;
 
-// TODO: rename to Authorization
+use super::User;
+
 #[derive(Responder)]
 #[response(status = 200)]
-struct Authentication(String);
+pub(super) struct Authorization(pub(super) String);
 
 #[derive(Debug, Responder)]
 #[response(status = 403)]
-enum AuthenticationError<'r> {
+pub(super) enum AuthenticationError<'r> {
     Invalid(&'r str),
     Missing(&'r str),
 }
 
 #[derive(Debug, Responder)]
-enum LoginError<'r> {
+pub(super) enum LoginError<'r> {
     AuthErr(AuthenticationError<'r>),
     NotFound(String),
     Other(String),
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for Authentication {
+impl<'r> FromRequest<'r> for Authorization {
     type Error = AuthenticationError<'r>;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -50,7 +51,7 @@ impl<'r> FromRequest<'r> for Authentication {
                 AuthenticationError::Missing("Authentication header is not present"),
             )),
             Some(key) if validate_auth_key(key).is_ok() => {
-                Outcome::Success(Authentication(key.into()))
+                Outcome::Success(Authorization(key.into()))
             }
             Some(_) => rocket::outcome::Outcome::Error((
                 Status::BadRequest,
@@ -60,16 +61,16 @@ impl<'r> FromRequest<'r> for Authentication {
     }
 }
 
-fn validate_auth_key(key: &str) -> Result<TokenData<Claims>, Error> {
+pub(super) fn validate_auth_key(key: &str) -> Result<TokenData<Claims>, Error> {
     let validation = Validation::new(jsonwebtoken::Algorithm::HS512);
 
     decode::<Claims>(key, &DecodingKey::from_secret(&*crate::KEY), &validation)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Claims {
-    sub: i32,
-    exp: i64,
+pub(super) struct Claims {
+    pub(super) sub: i32,
+    pub(super) exp: i64,
 }
 
 impl Claims {
@@ -84,61 +85,11 @@ impl Claims {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(crate = "rocket::serde")]
-struct User<'r> {
-    username: &'r str,
-    password: &'r str,
-}
-
-#[derive(Serialize)]
-#[serde(crate = "rocket::serde")]
-struct UserResponse {
-    name: String,
-    id: i32,
-    created_at: i64,
-}
-
-#[post("/", data = "<user>")]
-pub(super) async fn create_user(user: Json<User<'_>>, mut db: Connection<AppDB>) -> Status {
-    let user_exists = query!(
-        "select exists(select (1) from users where name = $1)",
-        user.username
-    )
-    .fetch_one(&mut **db)
-    .await
-    .ok();
-
-    if user_exists.unwrap().exists.unwrap() {
-        return Status::Conflict;
-    }
-
-    let hash = password_auth::generate_hash(user.password);
-
-    let created = query!(
-        "insert into users (name, hash) values ($1, $2)",
-        user.username,
-        hash
-    )
-    .execute(&mut **db)
-    .await;
-
-    match created {
-        Ok(_) => Status::Created,
-        Err(e) => {
-            error!("Error while creating user: {e}");
-            Status::InternalServerError
-        }
-    }
-}
-
 #[post("/login", data = "<cred>")]
 pub(crate) async fn login<'r>(
     cred: Json<User<'_>>,
     mut db: Connection<AppDB>,
-) -> Result<(Status, Authentication), (Status, LoginError<'r>)> {
-    // TODO: refactor Result<(S, _), E> to Result<_, E>
-    // get user
+) -> Result<Authorization, (Status, LoginError<'r>)> {
     let Some(user) = query!("select * from users where name=$1", cred.username)
         .fetch_one(&mut **db)
         .await
@@ -159,7 +110,7 @@ pub(crate) async fn login<'r>(
 
     match password_auth::verify_password(cred.password, &user.hash) {
         Ok(()) => match Claims::create_jwt(user.id) {
-            Ok(v) => Ok((Status::Ok, Authentication(v))),
+            Ok(v) => Ok(Authorization(v)),
             Err(e) => {
                 error!(
                     "Could not generate JWT for \"{}\" (id: {}): {}",
@@ -193,43 +144,7 @@ pub(crate) async fn login<'r>(
 }
 
 #[get("/login")]
-pub(crate) async fn verify_token(_auth: Authentication) {} // body isn't required since the request guard checks for validity
-
-#[get("/")]
-pub(crate) async fn retrieve_user<'r>(
-    auth: Authentication,
-    mut db: Connection<AppDB>,
-) -> Result<Json<UserResponse>, (Status, LoginError<'r>)> {
-    let claims = match validate_auth_key(&auth.0) {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Inconsistency between request guard and this call: {e}");
-            return Err((
-                Status::InternalServerError,
-                LoginError::Other("Could not verify authorization header".into()),
-            ));
-        }
-    };
-
-    let uid = claims.claims.sub;
-
-    let Some(user) = query!("select * from users where id = $1", uid)
-        .fetch_one(&mut **db)
-        .await
-        .ok()
-    else {
-        return Err((
-            Status::NotFound,
-            LoginError::NotFound("User not found".into()),
-        ));
-    };
-
-    Ok(Json(UserResponse {
-        name: user.name,
-        id: user.id,
-        created_at: user.createdat.as_utc().unix_timestamp(),
-    }))
-}
+pub(crate) async fn verify_token(_auth: Authorization) {} // body isn't required since the request guard checks for validity
 
 #[cfg(test)]
 mod tests {
