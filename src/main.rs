@@ -2,6 +2,7 @@ mod recipe;
 pub mod user;
 mod utils;
 
+use recipe::RecipeModule;
 use rocket_db_pools::Database;
 use user::UserModule;
 use utils::RocketExt;
@@ -17,5 +18,8 @@ fn rocket() -> _ {
     #[cfg(not(test))]
     log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
 
-    rocket::build().attach(AppDB::init()).add::<UserModule>()
+    rocket::build()
+        .attach(AppDB::init())
+        .add::<UserModule>()
+        .add::<RecipeModule>()
 }
