@@ -12,7 +12,7 @@ use sqlx::query;
 
 use crate::{AppDB, utils::Module};
 
-mod auth;
+pub mod auth;
 
 pub struct UserModule;
 

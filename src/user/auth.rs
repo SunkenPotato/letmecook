@@ -24,17 +24,18 @@ use super::User;
 
 #[derive(Responder)]
 #[response(status = 200)]
-pub(super) struct Authorization(pub(super) String);
+pub struct Authorization(pub String);
 
 #[derive(Debug, Responder)]
 #[response(status = 403)]
-pub(super) enum AuthenticationError<'r> {
+pub enum AuthenticationError<'r> {
     #[response(status = 403)]
     Invalid(&'r str),
     #[response(status = 401)]
     Missing(&'r str),
 }
 
+// TODO: rename to UserError
 #[derive(Debug, Responder)]
 pub(super) enum LoginError<'r> {
     AuthErr(AuthenticationError<'r>),
@@ -65,15 +66,17 @@ impl<'r> FromRequest<'r> for Authorization {
     }
 }
 
-pub(super) fn validate_auth_key(key: &str) -> Result<TokenData<Claims>, Error> {
+// TODO: make this an Authorization method
+// TODO: normalize error handling
+pub fn validate_auth_key(key: &str) -> Result<TokenData<Claims>, Error> {
     let validation = Validation::new(jsonwebtoken::Algorithm::HS512);
 
     decode::<Claims>(key, &DecodingKey::from_secret(&crate::KEY), &validation)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(super) struct Claims {
-    pub(super) sub: i32,
+pub struct Claims {
+    pub sub: i32,
     pub(super) exp: i64,
 }
 

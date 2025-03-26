@@ -1,7 +1,11 @@
+mod api;
+
 use rocket::routes;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Module;
+
+const RECIPE_FOLDER_PATH: &str = "recipes/";
 
 pub struct RecipeModule;
 
@@ -9,12 +13,13 @@ impl Module for RecipeModule {
     const BASE_PATH: &str = "/recipe";
 
     fn routes() -> Vec<rocket::Route> {
-        routes![]
+        routes![api::create_recipe]
     }
 }
 
 #[derive(Serialize, Deserialize)]
 struct Recipe {
+    name: String,
     origin: Option<String>,
     #[serde(rename = "preparationTime")]
     preparation_time: u64, // in s
@@ -51,6 +56,7 @@ mod tests {
     fn parse_recipe() {
         let input = r#"
             {
+                "name": "dev's delight",
                 "origin": "DE",
                 "preparationTime": 1200,
                 "cookingTime": 1200,
