@@ -1,5 +1,6 @@
 use log::error;
 use rocket::{
+    delete, get,
     http::Status,
     post,
     serde::json::Json,
@@ -16,6 +17,7 @@ use crate::{
 use super::Recipe;
 
 // TODO: possibly hash recipe to check for duplicates...?
+// use UserError instead, but make it generic
 #[post("/", data = "<recipe>")]
 pub(crate) async fn create_recipe(
     auth: Authorization,
@@ -72,4 +74,15 @@ pub(crate) async fn create_recipe(
     };
 
     Status::NoContent
+}
+
+// use UserError
+#[get("/<id>")]
+async fn get_recipe(mut db: Connection<AppDB>, id: i64) -> Result<Json<Recipe>, Status> {
+    todo!()
+}
+
+#[delete("/<id>")]
+async fn delete_recipe(mut db: Connection<AppDB>, id: i64) -> Status {
+    todo!()
 }
