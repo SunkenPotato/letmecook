@@ -1,3 +1,4 @@
+mod recipe;
 pub mod user;
 mod utils;
 
