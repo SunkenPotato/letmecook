@@ -15,6 +15,13 @@ pub struct AppDB(rocket_db_pools::sqlx::PgPool);
 
 #[rocket::launch]
 fn rocket() -> _ {
+    unsafe {
+        std::env::set_var(
+            "LOGGER_TIME",
+            chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string(),
+        );
+    }
+
     #[cfg(not(test))]
     log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
 

@@ -5,9 +5,10 @@ appenders:
     kind: console
     encoder:
       pattern: "{d(%Y-%m-%d %H:%M:%S:%m)} [{h({l})}] {M}: {m}\n"
+
   file:
     kind: file
-    path: "log/app.log"
+    path: "log/$ENV{LOGGER_TIME}-lmc.log"
     encoder:
       pattern: "{d(%Y-%m-%d %H:%M:%S:%m)} [{l}] {M}: {m}\n"
 
@@ -15,12 +16,12 @@ root:
   level: info
 
 loggers:
-  rocket:
-    level: warn
+  lmc:
+    level: info
     appenders:
       - stdout
-
-  crate:
+      - file
+  rocket:
     level: info
     appenders:
       - stdout

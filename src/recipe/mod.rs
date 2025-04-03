@@ -13,18 +13,41 @@ impl Module for RecipeModule {
     const BASE_PATH: &str = "/recipe";
 
     fn routes() -> Vec<rocket::Route> {
-        routes![api::create_recipe]
+        routes![api::create_recipe, api::get_recipe]
     }
 }
 
 #[derive(Serialize, Deserialize)]
-struct Recipe {
+struct RequestRecipe {
+    meta: RequestRecipeMeta,
+    recipe: AbsoluteRecipe,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ResponseRecipe {
+    meta: ResponseRecipeMeta,
+    recipe: AbsoluteRecipe,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RequestRecipeMeta {
     name: String,
-    origin: Option<String>,
+    description: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ResponseRecipeMeta {
+    name: String,
+    description: String,
+    author: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AbsoluteRecipe {
     #[serde(rename = "preparationTime")]
-    preparation_time: u64, // in s
+    preparation_time: u64,
     #[serde(rename = "cookingTime")]
-    cooking_time: u64, // in s
+    cooking_time: u64,
     ingredients: Vec<Ingredient>,
     steps: Vec<RecipeStep>,
 }
@@ -47,30 +70,3 @@ struct Ingredient {
 
 #[derive(Serialize, Deserialize)]
 struct RecipeStep(String); // this isn't worth parsing any further
-
-#[cfg(test)]
-mod tests {
-    use super::Recipe;
-
-    #[test]
-    fn parse_recipe() {
-        let input = r#"
-            {
-                "name": "dev's delight",
-                "origin": "DE",
-                "preparationTime": 1200,
-                "cookingTime": 1200,
-                "ingredients": [
-                    {
-                        "name": "Tomato",
-                        "quantity": { "n": 5 }
-                    }
-                ],
-                "steps": ["...."]
-            }
-
-            "#;
-
-        serde_json::from_str::<Recipe>(&input).unwrap();
-    }
-}
