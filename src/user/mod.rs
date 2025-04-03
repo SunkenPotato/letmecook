@@ -1,7 +1,5 @@
 #![allow(private_interfaces)]
 
-// TODO: add tests - nc
-
 use auth::{Authorization, LoginError};
 use log::error;
 use password_auth::generate_hash;

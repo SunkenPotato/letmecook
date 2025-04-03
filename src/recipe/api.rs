@@ -51,7 +51,7 @@ pub async fn create_recipe(
     .exists
     .unwrap()
     {
-        false => return Status::NotFound, // use UserError here for more descriptive error
+        false => return Status::NotFound,
         _ => (),
     };
 
@@ -95,7 +95,6 @@ pub async fn create_recipe(
     Status::NoContent
 }
 
-// use some specialized struct
 #[get("/<id>")]
 pub async fn get_recipe(
     mut db: Connection<AppDB>,

@@ -139,7 +139,7 @@ pub async fn login<'r>(
 }
 
 #[get("/login")]
-pub async fn verify_token(_auth: Authorization) {} // body isn't required since the request guard checks for validity
+pub async fn verify_token(_auth: Authorization) {}
 
 #[cfg(test)]
 mod tests {
