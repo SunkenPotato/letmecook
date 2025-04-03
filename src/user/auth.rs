@@ -26,6 +26,14 @@ use super::User;
 #[response(status = 200)]
 pub struct Authorization(pub String);
 
+impl Authorization {
+    pub fn validate(&self) -> Result<TokenData<Claims>, Error> {
+        let validation = Validation::new(jsonwebtoken::Algorithm::HS512);
+
+        decode::<Claims>(&self.0, &DecodingKey::from_secret(&crate::KEY), &validation)
+    }
+}
+
 #[derive(Debug, Responder)]
 #[response(status = 403)]
 pub enum AuthenticationError<'r> {
@@ -42,7 +50,7 @@ pub(super) enum LoginError<'r> {
     #[response(status = 404)]
     NotFound(String),
     #[response(status = 500)]
-    Other(String),
+    Other(()),
 }
 
 #[rocket::async_trait]
@@ -50,28 +58,20 @@ impl<'r> FromRequest<'r> for Authorization {
     type Error = AuthenticationError<'r>;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        match req.headers().get_one("Authentication") {
+        match req.headers().get_one("Authorization") {
             None => Outcome::Error((
                 Status::Unauthorized,
-                AuthenticationError::Missing("Authentication header is not present"),
+                AuthenticationError::Missing("Authorization header is not present"),
             )),
-            Some(key) if validate_auth_key(key).is_ok() => {
+            Some(key) if Authorization(key.into()).validate().is_ok() => {
                 Outcome::Success(Authorization(key.into()))
             }
             Some(_) => rocket::outcome::Outcome::Error((
                 Status::BadRequest,
-                AuthenticationError::Invalid("Authentication expired"),
+                AuthenticationError::Invalid("Authorization expired"),
             )),
         }
     }
-}
-
-// TODO: make this an Authorization method
-// TODO: normalize error handling
-pub fn validate_auth_key(key: &str) -> Result<TokenData<Claims>, Error> {
-    let validation = Validation::new(jsonwebtoken::Algorithm::HS512);
-
-    decode::<Claims>(key, &DecodingKey::from_secret(&crate::KEY), &validation)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -119,7 +119,7 @@ pub(crate) async fn login<'r>(
                     user.name, user.id, e
                 );
 
-                Err(LoginError::Other("Failed to generate JWT".into()))
+                Err(LoginError::Other(()))
             }
         },
         Err(e) => match e {
@@ -132,7 +132,7 @@ pub(crate) async fn login<'r>(
                     user.name, user.id, e
                 );
 
-                Err(LoginError::Other("Failed to parse stored hash".into()))
+                Err(LoginError::Other(()))
             }
         },
     }
@@ -147,7 +147,7 @@ mod tests {
 
     use rocket::{async_test, http::Status, local::blocking::Client, uri};
 
-    use crate::{rocket, user::auth::validate_auth_key};
+    use crate::{rocket, user::auth::Authorization};
 
     #[test]
     fn create_user() {
@@ -177,7 +177,7 @@ mod tests {
 
         let key = response.into_string().await.unwrap();
 
-        let claims = validate_auth_key(&key).unwrap();
+        let claims = Authorization(key.into()).validate().unwrap();
         assert_eq!(claims.claims.sub, DEV_ID);
     }
 }

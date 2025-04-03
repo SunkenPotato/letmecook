@@ -2,7 +2,7 @@
 
 // TODO: add tests - nc
 
-use auth::{Authorization, LoginError, validate_auth_key};
+use auth::{Authorization, LoginError};
 use log::error;
 use password_auth::generate_hash;
 use rocket::{Responder, delete, get, http::Status, post, put, routes, serde::json::Json};
@@ -24,7 +24,7 @@ impl Module for UserModule {
             create_user,
             auth::login,
             auth::verify_token,
-            retrieve_user,
+            retrieve_self_user,
             update_user,
             delete_user
         ]
@@ -47,18 +47,15 @@ struct UserResponse {
 }
 
 #[get("/")]
-pub(crate) async fn retrieve_user<'r>(
+pub(crate) async fn retrieve_self_user<'r>(
     auth: Authorization,
     mut db: Connection<AppDB>,
-) -> Result<Json<UserResponse>, (Status, LoginError<'r>)> {
-    let claims = match validate_auth_key(&auth.0) {
+) -> Result<Json<UserResponse>, LoginError<'r>> {
+    let claims = match auth.validate() {
         Ok(v) => v,
         Err(e) => {
             error!("Inconsistency between request guard and this call: {e}");
-            return Err((
-                Status::InternalServerError,
-                LoginError::Other("Could not verify authorization header".into()),
-            ));
+            return Err(LoginError::Other(()));
         }
     };
 
@@ -69,10 +66,7 @@ pub(crate) async fn retrieve_user<'r>(
         .await
         .ok()
     else {
-        return Err((
-            Status::NotFound,
-            LoginError::NotFound("user not found".into()),
-        ));
+        return Err(LoginError::NotFound("User not found".into()));
     };
 
     Ok(Json(UserResponse {
@@ -117,7 +111,9 @@ async fn create_user(user: Json<User<'_>>, mut db: Connection<AppDB>) -> Status 
 
 #[delete("/")]
 async fn delete_user(auth: Authorization, mut db: Connection<AppDB>) -> Status {
-    let claims = validate_auth_key(&auth.0).expect("expected key already to be validated");
+    let claims = auth
+        .validate()
+        .expect("expected key already to be validated");
 
     match query!(
         "update users set deleted = true where id = $1 and deleted = false",
@@ -148,7 +144,13 @@ async fn update_user<'r>(
     user: Json<User<'r>>,
     mut db: Connection<AppDB>,
 ) -> Result<UserUpdateResponse, LoginError<'r>> {
-    let claims = validate_auth_key(&auth.0).expect("valid token because of request guard");
+    let claims = match auth.validate() {
+        Ok(claims) => claims,
+        Err(e) => {
+            error!("Token should be valid: {e}");
+            return Err(LoginError::Other(()));
+        }
+    };
 
     let hash = generate_hash(user.password);
 
@@ -171,7 +173,7 @@ async fn update_user<'r>(
                 claims.claims.sub, e
             );
 
-            Err(LoginError::Other("Internal Server Error".into()))
+            Err(LoginError::Other(()))
         }
     }
 }

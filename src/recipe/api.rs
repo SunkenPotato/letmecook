@@ -18,7 +18,7 @@ use thiserror::Error;
 use crate::{
     AppDB,
     recipe::{RECIPE_FOLDER_PATH, ResponseRecipeMeta},
-    user::auth::{Authorization, validate_auth_key},
+    user::auth::Authorization,
 };
 
 use super::{AbsoluteRecipe, RequestRecipe, ResponseRecipe};
@@ -39,7 +39,7 @@ pub(crate) async fn create_recipe(
     mut db: Connection<AppDB>,
     recipe: Json<RequestRecipe>,
 ) -> Status {
-    let claims = validate_auth_key(&auth.0).expect("validated token");
+    let claims = auth.validate().expect("validated token");
 
     match sqlx::query!(
         "select exists(select (1) from users where id = $1 and deleted = false)",
