@@ -13,7 +13,7 @@ impl Module for RecipeModule {
     const BASE_PATH: &str = "/recipe";
 
     fn routes() -> Vec<rocket::Route> {
-        routes![api::create_recipe, api::get_recipe]
+        routes![api::create_recipe, api::get_recipe, api::delete_recipe]
     }
 }
 

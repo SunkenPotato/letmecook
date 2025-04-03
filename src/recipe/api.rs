@@ -7,7 +7,7 @@ use rocket::{
     post,
     serde::json::Json,
     tokio::{
-        fs::File,
+        fs::{self, File},
         io::{AsyncReadExt, AsyncWriteExt},
     },
 };
@@ -18,7 +18,7 @@ use thiserror::Error;
 use crate::{
     AppDB,
     recipe::{RECIPE_FOLDER_PATH, ResponseRecipeMeta},
-    user::auth::Authorization,
+    user::{REQUEST_GUARD_INCONSISTENCY, auth::Authorization},
 };
 
 use super::{AbsoluteRecipe, RequestRecipe, ResponseRecipe};
@@ -34,7 +34,7 @@ enum RecipeReadError {
 // TODO: possibly hash recipe to check for duplicates...?
 // use UserError instead, but make it generic
 #[post("/", data = "<recipe>")]
-pub(crate) async fn create_recipe(
+pub async fn create_recipe(
     auth: Authorization,
     mut db: Connection<AppDB>,
     recipe: Json<RequestRecipe>,
@@ -97,17 +97,15 @@ pub(crate) async fn create_recipe(
 
 // use some specialized struct
 #[get("/<id>")]
-pub(crate) async fn get_recipe(
+pub async fn get_recipe(
     mut db: Connection<AppDB>,
-    id: Option<i32>,
+    id: i32,
 ) -> Result<Json<Vec<ResponseRecipe>>, Status> {
-    let mut recipe_query =
-        QueryBuilder::<Postgres>::new("select * from recipes where deleted = false");
-    if let Some(id) = id {
-        recipe_query.push(" and id = ").push_bind(id);
-    };
+    let mut query = QueryBuilder::<Postgres>::new("select * from recipes where deleted = false");
+    query.push(" and id = ").push_bind(id);
 
-    let query = recipe_query.build();
+    let query = query.build();
+
     let recipe_metas = map_rows_to_recipe_meta(
         query
             .fetch_all(&mut **db)
@@ -157,8 +155,42 @@ async fn read_recipe(path: impl AsRef<Path>) -> Result<AbsoluteRecipe, RecipeRea
     Ok(serde_json::from_str(&buf).map_err(|e| RecipeReadError::JsonError(e))?)
 }
 
-#[allow(unused)]
-#[delete("/<id>")]
-async fn delete_recipe(mut db: Connection<AppDB>, id: i64) -> Status {
-    todo!()
+#[delete("/<recipe_id>")]
+pub async fn delete_recipe(
+    mut db: Connection<AppDB>,
+    recipe_id: i32,
+    auth: Authorization,
+) -> Status {
+    let claims = match auth.validate() {
+        Ok(v) => v,
+        Err(e) => {
+            error!("{REQUEST_GUARD_INCONSISTENCY} {e}");
+
+            return Status::InternalServerError;
+        }
+    };
+
+    let user_id = claims.claims.sub;
+
+    match sqlx::query!(
+        "update recipes set deleted = true from users where recipes.author = users.id and users.id = $1 and recipes.id = $2",
+        user_id,
+        recipe_id
+    )
+    .execute(&mut **db)
+    .await
+    {
+        Ok(v) => match v.rows_affected() == 1 {
+            true => {
+                let _ = fs::remove_file(format!("{RECIPE_FOLDER_PATH}{recipe_id}")).await;
+                Status::NoContent
+            },
+            false => Status::NotFound,
+        },
+        Err(e) => {
+            error!("Error occurred while trying to pseudo-delete recipe: {e}");
+
+            Status::InternalServerError
+        }
+    }
 }

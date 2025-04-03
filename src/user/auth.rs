@@ -50,7 +50,7 @@ pub(super) enum LoginError<'r> {
     #[response(status = 404)]
     NotFound(String),
     #[response(status = 500)]
-    Other(()),
+    InternalServerError(()),
 }
 
 #[rocket::async_trait]
@@ -93,7 +93,7 @@ impl Claims {
 }
 
 #[post("/login", data = "<cred>")]
-pub(crate) async fn login<'r>(
+pub async fn login<'r>(
     cred: Json<User<'_>>,
     mut db: Connection<AppDB>,
 ) -> Result<Authorization, LoginError<'r>> {
@@ -119,7 +119,7 @@ pub(crate) async fn login<'r>(
                     user.name, user.id, e
                 );
 
-                Err(LoginError::Other(()))
+                Err(LoginError::InternalServerError(()))
             }
         },
         Err(e) => match e {
@@ -132,14 +132,14 @@ pub(crate) async fn login<'r>(
                     user.name, user.id, e
                 );
 
-                Err(LoginError::Other(()))
+                Err(LoginError::InternalServerError(()))
             }
         },
     }
 }
 
 #[get("/login")]
-pub(crate) async fn verify_token(_auth: Authorization) {} // body isn't required since the request guard checks for validity
+pub async fn verify_token(_auth: Authorization) {} // body isn't required since the request guard checks for validity
 
 #[cfg(test)]
 mod tests {
