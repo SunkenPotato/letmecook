@@ -1,2 +1,6 @@
+[default]
+log_level = "normal"
+cli_colors = false
+
 [default.databases.db]
 url = "postgres://user:password@localhost/db"
