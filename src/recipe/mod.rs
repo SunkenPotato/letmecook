@@ -2,8 +2,10 @@ mod api;
 
 use rocket::routes;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgRow;
 
 use crate::utils::Module;
+use sqlx::Row;
 
 const RECIPE_FOLDER_PATH: &str = "recipes/";
 
@@ -13,7 +15,12 @@ impl Module for RecipeModule {
     const BASE_PATH: &str = "/recipe";
 
     fn routes() -> Vec<rocket::Route> {
-        routes![api::create_recipe, api::get_recipe, api::delete_recipe]
+        routes![
+            api::create_recipe,
+            api::get_recipe,
+            api::delete_recipe,
+            api::search
+        ]
     }
 }
 
@@ -29,6 +36,19 @@ struct ResponseRecipe {
     recipe: AbsoluteRecipe,
 }
 
+impl TryFrom<PgRow> for ResponseRecipeMeta {
+    type Error = sqlx::Error;
+
+    fn try_from(value: PgRow) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.try_get("id")?,
+            name: value.try_get("name")?,
+            description: value.try_get("description")?,
+            author: value.try_get("author")?,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct RequestRecipeMeta {
     name: String,
@@ -40,6 +60,7 @@ struct ResponseRecipeMeta {
     name: String,
     description: String,
     author: i32,
+    id: i32,
 }
 
 #[derive(Serialize, Deserialize)]
