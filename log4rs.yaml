@@ -8,7 +8,7 @@ appenders:
 
   file:
     kind: file
-    path: "log/$ENV{LOGGER_TIME}-lmc.log"
+    path: "log/latest.log"
     encoder:
       pattern: "{d(%Y-%m-%d %H:%M:%S:%m)} [{l}] {M}: {m}\n"
 
