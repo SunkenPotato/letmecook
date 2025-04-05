@@ -10,7 +10,7 @@ use rocket::tokio::fs;
 use rocket_db_pools::Database;
 use thiserror::Error;
 use user::UserModule;
-use utils::RocketExt;
+use utils::{CORSFairing, RocketExt};
 
 static KEY: [u8; 512] = *include_bytes!("../key");
 
@@ -38,6 +38,7 @@ async fn main() -> Result<(), Error> {
 
     rocket::build()
         .attach(AppDB::init())
+        .attach(CORSFairing)
         .add::<UserModule>()
         .add::<RecipeModule>()
         .ignite()
