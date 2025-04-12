@@ -1,27 +1,32 @@
 use std::path::Path;
 
-use log::error;
+use log::{error, info};
 use rocket::{
-    delete, get,
-    http::Status,
+    Data, delete, get,
+    http::{ContentType, Status},
     post,
     serde::json::Json,
     tokio::{
         fs::{self, File},
-        io::{AsyncReadExt, AsyncWriteExt},
+        io::AsyncReadExt,
     },
 };
 use rocket_db_pools::Connection;
-use sqlx::{Postgres, QueryBuilder, Row};
+use rocket_multipart_form_data::{
+    MultipartFormData, MultipartFormDataField, MultipartFormDataOptions,
+};
+use sqlx::{Executor, Postgres, QueryBuilder, Row};
 use thiserror::Error;
 
 use crate::{
     AppDB,
-    recipe::{RECIPE_FOLDER_PATH, ResponseRecipeMeta},
+    recipe::ResponseRecipeMeta,
     user::{REQUEST_GUARD_INCONSISTENCY, auth::Authorization},
 };
 
-use super::{AbsoluteRecipe, RequestRecipe, ResponseRecipe};
+use super::{
+    AbsoluteRecipe, RequestRecipe, ResponseRecipe, create_image_url, recipe_image_path, recipe_path,
+};
 
 #[derive(Debug, Error)]
 enum RecipeReadError {
@@ -31,68 +36,114 @@ enum RecipeReadError {
     IoError(#[from] std::io::Error),
 }
 
+async fn rollback_recipe_insertion<'e, T>(db: &mut T, id: i32)
+where
+    for<'exec> &'exec mut T: Executor<'exec, Database = Postgres>,
+{
+    let query = format!("DELETE FROM recipes WHERE id = {}", id);
+    match sqlx::query(&query).execute(db).await {
+        Ok(_) => info!("Successfully rolled back recipe insertion"),
+        Err(e) => error!("Failed to rollback recipe insertion: {}", e),
+    }
+}
+
 // TODO: possibly hash recipe to check for duplicates...?
 // use UserError instead, but make it generic
-#[post("/", data = "<recipe>")]
-pub async fn create_recipe(
+#[post("/", data = "<data>")]
+pub async fn create_recipe<'r>(
     auth: Authorization,
     mut db: Connection<AppDB>,
-    recipe: Json<RequestRecipe>,
-) -> Status {
-    let claims = auth.validate().expect("validated token");
+    data: Data<'_>,
+    content_type: &ContentType,
+) -> Result<Json<ResponseRecipe>, (Status, &'r str)> {
+    // get id
+    let claims = auth.validate().expect("Failed to validate authorization");
+    let author = claims.claims.sub;
 
-    match sqlx::query!(
-        "select exists(select (1) from users where id = $1 and deleted = false)",
-        claims.claims.sub
-    )
-    .fetch_one(&mut **db)
-    .await
-    .unwrap()
-    .exists
-    .unwrap()
-    {
-        false => return Status::NotFound,
+    // multipart form data options with field "image" (file) and "recipe" (text (jsonz))
+    let opts = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
+        MultipartFormDataField::file("image")
+            .content_type_by_string(Some(rocket_multipart_form_data::mime::IMAGE_PNG))
+            .unwrap(),
+        MultipartFormDataField::text("recipe")
+            .content_type(Some(rocket_multipart_form_data::mime::APPLICATION_JSON)),
+    ]);
+
+    let mut data = match MultipartFormData::parse(content_type, data, opts).await {
+        Ok(v) => v,
+        Err(e) => {
+            info!("{e}");
+            return Err((Status::BadRequest, "Could not parse multipart form data"));
+        }
+    };
+
+    let image = &match data.files.remove("image") {
+        Some(image) => image,
+        None => return Err((Status::BadRequest, "Missing 'image' in multipart form data")),
+    }[0];
+
+    let recipe: RequestRecipe = match data.texts.remove("recipe") {
+        Some(v) => match serde_json::from_str(&v[0].text) {
+            Ok(v) => v,
+            Err(_) => return Err((Status::BadRequest, "Invalid JSON")),
+        },
+        None => {
+            return Err((
+                Status::BadRequest,
+                "Missing 'recipe' in multipart form data",
+            ));
+        }
+    };
+
+    let file_uuid = uuid::Uuid::new_v4();
+
+    let record = match sqlx::query!("insert into recipes (name, author, description, image) values ($1, $2, $3, $4) returning *",
+        recipe.meta.name, author, recipe.meta.description, file_uuid.to_string())
+        .fetch_one(&mut **db)
+        .await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Could not insert create record for recipe: {e}");
+
+            return Err((Status::InternalServerError, "Internal Server Error"));
+        },
+    };
+
+    let serialized = serde_json::to_string(&recipe.recipe).unwrap();
+
+    let recipe_path = recipe_path(file_uuid);
+    match fs::write(&recipe_path, serialized).await {
+        Err(e) => {
+            error!("Could not write recipe file: {e}");
+            rollback_recipe_insertion(&mut **db, record.id).await;
+
+            return Err((Status::InternalServerError, "Internal Server Error"));
+        }
         _ => (),
     };
 
-    let created_recipe = match sqlx::query!(
-        "insert into recipes (name, author, description) values ($1, $2, $3) returning id",
-        recipe.meta.name,
-        claims.claims.sub,
-        recipe.meta.description
-    )
-    .fetch_one(&mut **db)
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Error while trying to create recipe record: {e}");
-
-            return Status::InternalServerError;
+    if let Err(e) = fs::copy(&image.path, recipe_image_path(file_uuid)).await {
+        error!("Could not write recipe image file: {e}");
+        rollback_recipe_insertion(&mut **db, record.id).await;
+        if let Err(e) = fs::remove_file(recipe_path).await {
+            error!("Could not remove recipe file: {e}");
         }
+
+        return Err((Status::InternalServerError, "Internal Server Error"));
+    }
+
+    let meta = ResponseRecipeMeta {
+        id: record.id,
+        name: record.name,
+        author: record.author,
+        description: record.description,
+        image: create_image_url(record.image),
     };
 
-    let mut file = match File::create(format!("{RECIPE_FOLDER_PATH}{}", created_recipe.id)).await {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Could not open file: {e}");
-
-            return Status::InternalServerError;
-        }
-    };
-
-    match file
-        .write(&serde_json::to_vec(&recipe.recipe).unwrap())
-        .await
-    {
-        Err(e) => {
-            error!("Could not write recipe to file: {e}");
-            return Status::InternalServerError;
-        }
-        _ => (),
-    };
-
-    Status::NoContent
+    Ok(Json(ResponseRecipe {
+        meta,
+        recipe: recipe.recipe,
+    }))
 }
 
 #[get("/<id>")]
@@ -117,7 +168,7 @@ pub async fn get_recipe(
     let recipe_id = row.get::<i32, &str>("id");
     let meta = row.try_into().expect("row should have expected fields");
 
-    let recipe = read_recipe(format!("{RECIPE_FOLDER_PATH}{}", recipe_id))
+    let recipe = read_recipe(recipe_path(recipe_id))
         .await
         .inspect_err(|e| error!("Error while trying to read recipe: {e}"))
         .map_err(|_| Status::InternalServerError)?;
@@ -180,7 +231,7 @@ pub async fn search(
     let mut recipes = vec![];
 
     for meta in metas {
-        let recipe = read_recipe(format!("{RECIPE_FOLDER_PATH}{}", meta.id))
+        let recipe = read_recipe(recipe_path(meta.id))
             .await
             .inspect_err(|e| error!("Error while trying to read recipe {}: {e}", meta.id))
             .map_err(|_| Status::InternalServerError)?;
@@ -228,7 +279,7 @@ pub async fn delete_recipe(
     {
         Ok(v) => match v.rows_affected() == 1 {
             true => {
-                let _ = fs::remove_file(format!("{RECIPE_FOLDER_PATH}{recipe_id}")).await;
+                let _ = fs::remove_file(recipe_path(recipe_id)).await;
                 Status::NoContent
             },
             false => Status::NotFound,

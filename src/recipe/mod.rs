@@ -7,7 +7,19 @@ use sqlx::postgres::PgRow;
 use crate::utils::Module;
 use sqlx::Row;
 
-const RECIPE_FOLDER_PATH: &str = "recipes/";
+const RECIPE_FOLDER_PATH: &str = "storage/recipes";
+
+fn recipe_path<T: std::fmt::Display>(id: T) -> String {
+    format!("{}/{}", RECIPE_FOLDER_PATH, id)
+}
+
+fn recipe_image_path<T: std::fmt::Display>(name: T) -> String {
+    format!("storage/images/{}", name)
+}
+
+fn create_image_url(file_uuid: impl AsRef<str>) -> String {
+    format!("/cdn/images/{}", file_uuid.as_ref())
+}
 
 pub struct RecipeModule;
 
@@ -45,6 +57,7 @@ impl TryFrom<PgRow> for ResponseRecipeMeta {
             name: value.try_get("name")?,
             description: value.try_get("description")?,
             author: value.try_get("author")?,
+            image: value.try_get("image")?,
         })
     }
 }
@@ -61,6 +74,7 @@ struct ResponseRecipeMeta {
     description: String,
     author: i32,
     id: i32,
+    image: String,
 }
 
 #[derive(Serialize, Deserialize)]

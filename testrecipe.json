@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "name": "Devs delight",
+    "description": "A recipe for a delicious meal"
+  },
+  "recipe": {
+    "preparationTime": 600,
+    "cookingTime": 600,
+    "ingredients": [
+      {
+        "name": "Pasta",
+        "quantity": {
+          "g": "100"
+        }
+      },
+      {
+        "name": "Tomato sauce",
+        "quantity": {
+          "l": "0.3"
+        }
+      },
+      {
+        "name": "Cheese",
+        "quantity": {
+          "g": "20"
+        }
+      },
+      {
+        "name": "Water",
+        "quantity": {
+          "l": "2"
+        }
+      }
+    ],
+    "steps": [
+      "Heat the water and add salt",
+      "Let it boil",
+      "Add pasta, boil for 10 minutes",
+      "Meanwhile, heat the sauce in a separate pan",
+      "After both are done, serve in a bowl"
+    ]
+  }
+}
