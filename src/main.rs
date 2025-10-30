@@ -1,33 +1,26 @@
-extern crate rocket;
+use std::sync::Arc;
 
-mod recipe;
-pub mod user;
-mod utils;
-
+use axum::{Extension, Router};
 use log::info;
-use recipe::RecipeModule;
-use rocket::tokio::fs;
-use rocket_db_pools::Database;
-use thiserror::Error;
-use user::UserModule;
-use utils::{CORSFairing, RocketExt};
+use sqlx::postgres::PgPoolOptions;
+use tokio::{net::TcpListener, signal};
 
 static KEY: [u8; 512] = *include_bytes!("../key");
 
-#[derive(Database)]
-#[database("lmc")]
-pub struct AppDB(rocket_db_pools::sqlx::PgPool);
+pub struct AppDB(pub sqlx::PgPool);
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Rocket error: {0}")]
-    Rocket(#[from] rocket::Error),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+impl AppDB {
+    async fn new(url: &str) -> Result<Self, sqlx::Error> {
+        PgPoolOptions::new()
+            .max_connections(5)
+            .connect(url)
+            .await
+            .map(|v| Self(v))
+    }
 }
 
-#[rocket::main]
-async fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let startup_time = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
 
     #[cfg(not(test))]
@@ -36,19 +29,24 @@ async fn main() -> Result<(), Error> {
     info!("Starting server");
     info!("Process ID: {}", std::process::id());
 
-    rocket::build()
-        .attach(AppDB::init())
-        .attach(CORSFairing)
-        .add::<UserModule>()
-        .add::<RecipeModule>()
-        .ignite()
-        .await?
-        .launch()
-        .await?;
+    let db_conn_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable should be set");
+    info!("Attempting connection to database with environment variable URL...");
+    let db_conn = Arc::new(AppDB::new(&db_conn_url).await?);
+    info!("Connection OK");
 
-    fs::rename("log/latest.log", format!("log/{startup_time}.log")).await?;
+    let router = Router::new().layer(Extension(db_conn));
 
-    info!("Shutting down");
+    let listener = TcpListener::bind("127.0.0.1:8000").await?;
+
+    info!("Starting listener");
+
+    tokio::select! {
+        _ = signal::ctrl_c() => {}
+        _ = axum::serve(listener, router) => {}
+    }
+
+    tokio::fs::rename("log/latest.log", format!("log/{startup_time}.log")).await?;
 
     Ok(())
 }
