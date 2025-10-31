@@ -1,11 +1,23 @@
-use std::sync::Arc;
+mod user;
 
-use axum::{Extension, Router};
+use std::sync::{Arc, LazyLock};
+
+use axum::{
+    Extension, Router,
+    routing::{delete, post},
+};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use log::info;
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, signal};
 
-static KEY: [u8; 512] = *include_bytes!("../key");
+static RAW_KEY: &[u8] = include_bytes!("../key");
+static ENC_KEY: LazyLock<EncodingKey> = LazyLock::new(|| EncodingKey::from_secret(&RAW_KEY));
+static DEC_KEY: LazyLock<DecodingKey> = LazyLock::new(|| DecodingKey::from_secret(&RAW_KEY));
+static VALIDATION: LazyLock<Validation> = LazyLock::new(Validation::default);
+static JWT_HEADER: LazyLock<Header> = LazyLock::new(Header::default);
+
+type DbPool = Extension<Arc<AppDB>>;
 
 pub struct AppDB(pub sqlx::PgPool);
 
@@ -35,7 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_conn = Arc::new(AppDB::new(&db_conn_url).await?);
     info!("Connection OK");
 
-    let router = Router::new().layer(Extension(db_conn));
+    let router = Router::new()
+        .route("/user", post(user::create))
+        .route("/user", delete(user::delete))
+        .route("/user/login", post(user::login))
+        .layer(Extension(db_conn));
 
     let listener = TcpListener::bind("127.0.0.1:8000").await?;
 

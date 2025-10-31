@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.6"
+axum = { version = "0.8.6", features = ["macros"] }
+axum-extra = { version = "0.10.3", features = ["typed-header"] }
 chrono = "0.4.40"
 ctrlc = "3.5.1"
 jsonwebtoken = "9.3.1"
