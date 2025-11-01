@@ -1,10 +1,11 @@
-mod user;
+mod recipe;
+pub mod user;
 
 use std::sync::{Arc, LazyLock};
 
 use axum::{
     Extension, Router,
-    routing::{delete, post},
+    routing::{delete, get, post, put},
 };
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use log::info;
@@ -51,6 +52,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/user", post(user::create))
         .route("/user", delete(user::delete))
         .route("/user/login", post(user::login))
+        .route("/recipe", post(recipe::create))
+        .route("/recipe/{id}", get(recipe::read))
+        .route("/recipe/{id}", delete(recipe::delete))
+        .route("/recipe/{id}", put(recipe::update))
+        .route("/recipe/search", get(recipe::search))
         .layer(Extension(db_conn));
 
     let listener = TcpListener::bind("127.0.0.1:8000").await?;

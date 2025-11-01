@@ -18,8 +18,8 @@ pub struct User {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Authorization {
-    sub: String,
-    exp: i64,
+    pub sub: i32,
+    pub exp: i64,
 }
 
 impl axum_extra::headers::Header for Authorization {
@@ -108,7 +108,7 @@ pub async fn login(Extension(pool): DbPool, Json(user): Json<User>) -> (StatusCo
     }
 
     let claims = Authorization {
-        sub: user.username,
+        sub: db_user.id,
         exp: chrono::offset::Utc::now()
             .checked_add_signed(TimeDelta::hours(1))
             .unwrap()
@@ -125,7 +125,7 @@ pub async fn delete(
     TypedHeader(jwt): TypedHeader<Authorization>,
 ) -> (StatusCode, &'static str) {
     match sqlx::query!(
-        "update users set deleted = true where name = $1 and deleted = false",
+        "update users set deleted = true where id = $1 and deleted = false",
         jwt.sub
     )
     .execute(&pool.0)
