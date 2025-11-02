@@ -1,16 +1,22 @@
 mod recipe;
 pub mod user;
 
-use std::sync::{Arc, LazyLock};
+use std::{
+    sync::{Arc, LazyLock},
+    task::{Context, Poll},
+};
 
 use axum::{
     Extension, Router,
     routing::{delete, get, post, put},
 };
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
-use log::info;
+use log::{debug, info};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, signal};
+use tower::Service;
+use tower_http::cors::CorsLayer;
+use tower_layer::Layer;
 
 static RAW_KEY: &[u8] = include_bytes!("../key");
 static ENC_KEY: LazyLock<EncodingKey> = LazyLock::new(|| EncodingKey::from_secret(&RAW_KEY));
@@ -57,6 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/recipe/{id}", delete(recipe::delete))
         .route("/recipe/{id}", put(recipe::update))
         .route("/recipe/search", get(recipe::search))
+        .layer(CorsLayer::permissive())
+        .layer(LogLayer)
         .layer(Extension(db_conn));
 
     let listener = TcpListener::bind("127.0.0.1:8000").await?;
@@ -71,4 +79,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::fs::rename("log/latest.log", format!("log/{startup_time}.log")).await?;
 
     Ok(())
+}
+
+#[derive(Clone)]
+pub struct LogLayer;
+
+impl<S> Layer<S> for LogLayer {
+    type Service = LogService<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        LogService { service }
+    }
+}
+
+// This service implements the Log behavior
+#[derive(Clone)]
+pub struct LogService<S> {
+    service: S,
+}
+
+impl<S, Request> Service<Request> for LogService<S>
+where
+    S: Service<Request>,
+    Request: std::fmt::Debug,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+
+    fn call(&mut self, request: Request) -> Self::Future {
+        // Insert log statement here or other functionality
+        debug!("Incoming request: {request:?}");
+        self.service.call(request)
+    }
 }
